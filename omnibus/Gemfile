@@ -4,6 +4,8 @@ gem "omnibus", github: ENV.fetch("OMNIBUS_GITHUB_REPO", "chef/omnibus"), branch:
 gem "omnibus-software", github: ENV.fetch("OMNIBUS_SOFTWARE_GITHUB_REPO", "chef/omnibus-software"), branch: ENV.fetch("OMNIBUS_SOFTWARE_GITHUB_BRANCH", "main")
 gem "artifactory"
 
+gem "license_scout", github: "chef/license_scout", branch: "jsnapp/IPACK-39-add-overrides-for-ruby-3.1.1"
+
 gem "pedump"
 
 # This development group is installed by default when you run `bundle install`,
