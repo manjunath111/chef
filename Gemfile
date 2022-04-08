@@ -17,6 +17,8 @@ end
 
 gem "cheffish", ">= 17"
 
+gem "unf_ext", git: "https://github.com/knu/ruby-unf_ext", branch: "master"
+
 group(:omnibus_package) do
   gem "appbundler"
   gem "rb-readline"
