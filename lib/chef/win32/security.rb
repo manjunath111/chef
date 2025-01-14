@@ -130,6 +130,15 @@ class Chef
         end
       end
 
+      def self.clear_account_rights(name)
+        return if get_account_right(name) == []
+
+        with_lsa_policy(name) do |policy_handle, sid|
+          result = LsaRemoveAccountRights(policy_handle.read_pointer, sid, true, nil, 1)
+          test_and_raise_lsa_nt_status(result)
+        end
+      end
+
       def self.adjust_token_privileges(token, privileges)
         token = token.handle if token.respond_to?(:handle)
         old_privileges_size = FFI::Buffer.new(:long).write_long(privileges.size_with_privileges)
@@ -721,7 +730,13 @@ class Chef
         unless LogonUserW(username, domain, password, logon_type, logon_provider, token)
           Chef::ReservedNames::Win32::Error.raise!
         end
-        Token.new(Handle.new(token.read_pointer))
+
+        # originally this was .read_pointer, but that is interpreted as a non-primitive
+        # class (FFI::Pointer) and causes an ArgumentError (Invalid Memory Object) when
+        # compared to GetCurrentProcess(), which returns a HANDLE (void *). Since a
+        # HANDLE is not a pointer to allocated memory that Ruby C extensions can understand,
+        # the Invalid Memory Object error is raised.
+        Token.new(Handle.new(token.read_ulong))
       end
 
       def self.test_and_raise_lsa_nt_status(result)
