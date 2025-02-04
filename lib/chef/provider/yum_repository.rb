@@ -25,9 +25,7 @@ class Chef
     class YumRepository < Chef::Provider
       extend Chef::Mixin::Which
 
-      provides :yum_repository do
-        which "yum"
-      end
+      provides(:yum_repository, target_mode: true) { which "yum" }
 
       def load_current_resource; end
 
@@ -45,7 +43,7 @@ class Chef
           if new_resource.make_cache
             notifies :run, "execute[yum clean metadata #{new_resource.repositoryid}]", :immediately if new_resource.clean_metadata || new_resource.clean_headers
             # makecache fast only works on non-dnf systems.
-            if !which "dnf" && new_resource.makecache_fast
+            if !which("dnf") && new_resource.makecache_fast
               notifies :run, "execute[yum-makecache-fast-#{new_resource.repositoryid}]", :immediately
             else
               notifies :run, "execute[yum-makecache-#{new_resource.repositoryid}]", :immediately
