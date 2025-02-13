@@ -30,8 +30,8 @@ class Chef
         use_package_name_for_source
         allow_nils
 
-        provides :package, platform_family: "suse"
-        provides :zypper_package
+        provides :package, platform_family: "suse", target_mode: true
+        provides :zypper_package, target_mode: true
 
         def define_resource_requirements
           super
@@ -91,7 +91,7 @@ class Chef
         # @return [Boolean] True if all sources exist
         def source_files_exist?
           if !new_resource.source.nil?
-            resolved_source_array.all? { |s| s && ::File.exist?(s) }
+            resolved_source_array.all? { |s| s && ::TargetIO::File.exist?(s) }
           else
             true
           end
@@ -100,7 +100,7 @@ class Chef
         # Helper to return all the names of the missing sources for error messages.
         # @return [Array<String>] Array of missing sources
         def missing_sources
-          resolved_source_array.select { |s| s.nil? || !::File.exist?(s) }
+          resolved_source_array.select { |s| s.nil? || !::TargetIO::File.exist?(s) }
         end
 
         def resolve_source_to_version
@@ -132,6 +132,11 @@ class Chef
           end
           current_version ||= latest_version if is_installed
           current_version
+        rescue Mixlib::ShellOut::ShellCommandFailed => e
+          # zypper returns a '104' code if info is called for a non-existent package
+          return nil if e.message =~ /'104'/
+
+          raise
         end
 
         def resolve_available_version(package_name, new_version)
