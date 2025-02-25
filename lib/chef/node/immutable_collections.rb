@@ -17,6 +17,7 @@
 
 require_relative "common_api"
 require_relative "mixin/state_tracking"
+require_relative "mixin/state_tracking_array"
 require_relative "mixin/immutablize_array"
 require_relative "mixin/immutablize_hash"
 require_relative "../delayed_evaluator"
@@ -34,13 +35,23 @@ class Chef
       def convert_value(value)
         case value
         when Hash
-          ImmutableMash.new(value, __root__, __node__, __precedence__)
+          if ImmutableMash === value
+            # Save an object creation
+            value
+          else
+            ImmutableMash.new(value, __root__, __node__, __precedence__)
+          end
         when Array
-          ImmutableArray.new(value, __root__, __node__, __precedence__)
-        when ImmutableMash, ImmutableArray
-          value
+          if ImmutableArray === value
+            # Save an object creation
+            value
+          else
+            ImmutableArray.new(value, __root__, __node__, __precedence__)
+          end
         else
-          safe_dup(value).freeze
+          # We return any already frozen strings, since that's common over the course of a run.
+          # Check `frozen?` first since that's faster than a Class comparison
+          value.frozen? && String === value ? value : safe_dup(value).freeze
         end
       end
 
@@ -116,7 +127,7 @@ class Chef
         value
       end
 
-      prepend Chef::Node::Mixin::StateTracking
+      prepend Chef::Node::Mixin::StateTrackingArray
       prepend Chef::Node::Mixin::ImmutablizeArray
     end
 
