@@ -17,7 +17,6 @@
 #
 
 require_relative "../resource"
-require_relative "../http/simple"
 require "tmpdir" unless defined?(Dir.mktmpdir)
 module Addressable
   autoload :URI, "addressable/uri"
@@ -27,7 +26,8 @@ class Chef
   class Resource
     class AptRepository < Chef::Resource
 
-      provides(:apt_repository) { true }
+      provides(:apt_repository, target_mode: true) { true }
+      target_mode support: :full
 
       description "Use the **apt_repository** resource to specify additional APT repositories. Adding a new repository will update the APT package cache immediately."
       introduced "12.9"
@@ -98,6 +98,18 @@ class Chef
         end
         ```
 
+        **Add repository that needs custom options**:
+        ```ruby
+        apt_repository 'corretto' do
+          uri          'https://apt.corretto.aws'
+          arch         'amd64'
+          distribution 'stable'
+          components   ['main']
+          options      ['target-=Contents-deb']
+          key          'https://apt.corretto.aws/corretto.key'
+        end
+        ```
+
         **Remove a repository from the list**:
 
         ```ruby
@@ -114,6 +126,7 @@ class Chef
       # to allow that so don't refactor this however tempting it is
       property :repo_name, String,
         regex: [%r{^[^/]+$}],
+        coerce: proc { |x| x.gsub(" ", "-") },
         description: "An optional property to set the repository name if it differs from the resource block's name. The value of this setting must not contain spaces.",
         validation_message: "repo_name property cannot contain a forward slash '/'",
         introduced: "14.1", name_property: true
@@ -158,6 +171,10 @@ class Chef
       property :cache_rebuild, [TrueClass, FalseClass],
         description: "Determines whether to rebuild the APT package cache.",
         default: true, desired_state: false
+
+      property :options, [String, Array],
+        description: "Additional options to set for the repository",
+        default: [], coerce: proc { |x| Array(x) }
 
       default_action :add
       allowed_actions :add, :remove
@@ -272,8 +289,8 @@ class Chef
         def install_key_from_uri(key)
           key_name = key.gsub(/[^0-9A-Za-z\-]/, "_")
           cached_keyfile = ::File.join(Chef::Config[:file_cache_path], key_name)
-          tmp_dir = Dir.mktmpdir(".gpg")
-          at_exit { FileUtils.remove_entry(tmp_dir) }
+          tmp_dir = TargetIO::Dir.mktmpdir(".gpg")
+          at_exit { TargetIO::FileUtils.remove_entry(tmp_dir) }
 
           declare_resource(key_type(key), cached_keyfile) do
             source key
@@ -343,7 +360,7 @@ class Chef
         # @return [void]
         def install_ppa_key(owner, repo)
           url = "https://launchpad.net/api/1.0/~#{owner}/+archive/#{repo}"
-          key_id = Chef::HTTP::Simple.new(url).get("signing_key_fingerprint").delete('"')
+          key_id = TargetIO::HTTP.new(url).get("signing_key_fingerprint").delete('"')
           install_key_from_keyserver(key_id, "keyserver.ubuntu.com")
         rescue Net::HTTPClientException => e
           raise "Could not access Launchpad ppa API: #{e.message}"
@@ -388,19 +405,21 @@ class Chef
         # @param [Array] components
         # @param [Boolean] trusted
         # @param [String] arch
+        # @param [Array] options
         # @param [Boolean] add_src
         #
         # @return [String] complete repo config text
-        def build_repo(uri, distribution, components, trusted, arch, add_src = false)
+        def build_repo(uri, distribution, components, trusted, arch, options, add_src = false)
           uri = make_ppa_url(uri) if is_ppa_url?(uri)
 
           uri = Addressable::URI.parse(uri)
           components = Array(components).join(" ")
-          options = []
-          options << "arch=#{arch}" if arch
-          options << "trusted=yes" if trusted
-          optstr = unless options.empty?
-                     "[" + options.join(" ") + "]"
+          options_list = []
+          options_list << "arch=#{arch}" if arch
+          options_list << "trusted=yes" if trusted
+          options_list += options
+          optstr = unless options_list.empty?
+                     "[" + options_list.join(" ") + "]"
                    end
           info = [ optstr, uri.normalize.to_s, distribution, components ].compact.join(" ")
           repo =  "deb      #{info}\n"
@@ -415,7 +434,7 @@ class Chef
         # @return [void]
         def cleanup_legacy_file!
           legacy_path = "/etc/apt/sources.list.d/#{new_resource.name}.list"
-          if new_resource.name != new_resource.repo_name && ::File.exist?(legacy_path)
+          if new_resource.name != new_resource.repo_name && ::TargetIO::File.exist?(legacy_path)
             converge_by "Cleaning up legacy #{legacy_path} repo file" do
               file legacy_path do
                 action :delete
@@ -461,6 +480,7 @@ class Chef
           repo_components,
           new_resource.trusted,
           new_resource.arch,
+          new_resource.options,
           new_resource.deb_src
         )
 
@@ -480,7 +500,7 @@ class Chef
         return unless debian?
 
         cleanup_legacy_file!
-        if ::File.exist?("/etc/apt/sources.list.d/#{new_resource.repo_name}.list")
+        if ::TargetIO::File.exist?("/etc/apt/sources.list.d/#{new_resource.repo_name}.list")
           converge_by "Removing #{new_resource.repo_name} repository from /etc/apt/sources.list.d/" do
             apt_update new_resource.name do
               ignore_failure true
